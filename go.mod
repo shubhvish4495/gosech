@@ -1,4 +1,4 @@
-module github.com/shubhvish4495/gosh
+module github.com/shubhvish4495/gosech
 
 go 1.21.1
 

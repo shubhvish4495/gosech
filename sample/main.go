@@ -6,14 +6,14 @@ import (
 	"log"
 	"math/rand"
 
-	"github.com/shubhvish4495/gosh"
+	"github.com/shubhvish4495/gosech"
 )
 
 const jobId = "asfsdgsdg"
 const otherJobId = "gfsdgds"
 
 func main() {
-	serv, err := gosh.NewService("localhost:61613", nil)
+	serv, err := gosech.NewService("localhost:61613", nil, "rhsm.task.queue")
 	if err != nil {
 		log.Println(err)
 		return

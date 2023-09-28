@@ -1,4 +1,4 @@
-package gosh
+package gosech
 
 import (
 	"crypto/tls"
@@ -12,13 +12,12 @@ import (
 	"github.com/go-stomp/stomp/v3"
 )
 
-const taskDataChan = "rhsm.task.queue"
-
 type Service struct {
 	conn         *stomp.Conn
 	actionFunc   func([]byte) error
 	subscription *stomp.Subscription
 	jobIdFuncMap map[string]func([]byte) error
+	dataQueue    string
 }
 
 type multiFuncMsg struct {
@@ -28,7 +27,10 @@ type multiFuncMsg struct {
 
 //TODO: think about how to introduce locking into this
 
-func NewService(addr string, tlsCfg *tls.Config) (*Service, error) {
+// NewService returns a new service object for gosech. This method expects
+// the network address of the stomp server, the tlsConfguration if any and
+// the name of the queue from which we want the data to be processed
+func NewService(addr string, tlsCfg *tls.Config, dataQueue string) (*Service, error) {
 	var netConn io.ReadWriteCloser
 	// if tls config is passed we will create a tls connection
 	// else we create normal connection
@@ -53,7 +55,7 @@ func NewService(addr string, tlsCfg *tls.Config) (*Service, error) {
 	}
 
 	// subscribe to the topic
-	sub, err := stompConn.Subscribe(taskDataChan, stomp.AckClientIndividual)
+	sub, err := stompConn.Subscribe(dataQueue, stomp.AckClientIndividual)
 	if err != nil {
 		return nil, err
 	}
@@ -62,6 +64,7 @@ func NewService(addr string, tlsCfg *tls.Config) (*Service, error) {
 		conn:         stompConn,
 		subscription: sub,
 		jobIdFuncMap: make(map[string]func([]byte) error),
+		dataQueue:    dataQueue,
 	}, nil
 }
 
@@ -111,7 +114,7 @@ func (s *Service) StartMultiFuncProcessing() error {
 			err = f(msgData.Body)
 			if err != nil {
 				log.Println("error encountered while message processing. resending it to the back of the queue")
-				tx.Send(taskDataChan, "", msg.Body)
+				tx.Send(s.dataQueue, "", msg.Body)
 			}
 		}
 		// ack and commit. In case of error in any of the 2 cases we will panic
@@ -142,7 +145,7 @@ func (s *Service) StartProcessing() error {
 		err = s.actionFunc(msg.Body)
 		if err != nil {
 			log.Println("error encountered while message processing. resending it to the back of the queue")
-			tx.Send(taskDataChan, "", msg.Body)
+			tx.Send(s.dataQueue, "", msg.Body)
 		}
 
 		if err := tx.Ack(msg); err != nil {
@@ -163,7 +166,7 @@ func (s *Service) SendMessage(jobId string, data []byte) error {
 	}
 
 	byteData, _ := json.Marshal(msg)
-	if err := s.conn.Send(taskDataChan, "", byteData); err != nil {
+	if err := s.conn.Send(s.dataQueue, "", byteData); err != nil {
 		return err
 	}
 
