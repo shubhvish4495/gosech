@@ -13,19 +13,17 @@ import (
 )
 
 type Service struct {
-	conn         *stomp.Conn
-	actionFunc   func([]byte) error
-	subscription *stomp.Subscription
-	jobIdFuncMap map[string]func([]byte) error
-	dataQueue    string
+	conn               *stomp.Conn
+	actionFunc         func([]byte) error
+	subscription       *stomp.Subscription
+	jobIdActionFuncMap map[string]func([]byte) error
+	dataQueue          string
 }
 
 type multiFuncMsg struct {
 	Body  []byte
 	JobID string
 }
-
-//TODO: think about how to introduce locking into this
 
 // NewService returns a new service object for gosech. This method expects
 // the network address of the stomp server, the tlsConfguration if any and
@@ -61,10 +59,10 @@ func NewService(addr string, tlsCfg *tls.Config, dataQueue string) (*Service, er
 	}
 
 	return &Service{
-		conn:         stompConn,
-		subscription: sub,
-		jobIdFuncMap: make(map[string]func([]byte) error),
-		dataQueue:    dataQueue,
+		conn:               stompConn,
+		subscription:       sub,
+		jobIdActionFuncMap: make(map[string]func([]byte) error),
+		dataQueue:          dataQueue,
 	}, nil
 }
 
@@ -77,11 +75,11 @@ func (s *Service) RegisterFunc(f func([]byte) error) {
 // this jobId should be unique and will be invoked when the passed message has
 // this jobId mentioned in it.
 func (s *Service) RegisterFuncWithJobID(jobId string, f func([]byte) error) error {
-	if _, ok := s.jobIdFuncMap[jobId]; ok {
+	if _, ok := s.jobIdActionFuncMap[jobId]; ok {
 		return errors.New("job with the given id already exists")
 	}
 
-	s.jobIdFuncMap[jobId] = f
+	s.jobIdActionFuncMap[jobId] = f
 	return nil
 }
 
@@ -107,7 +105,7 @@ func (s *Service) StartMultiFuncProcessing() error {
 		msg := <-s.subscription.C
 		json.Unmarshal(msg.Body, &msgData)
 
-		if f, ok := s.jobIdFuncMap[msgData.JobID]; !ok {
+		if f, ok := s.jobIdActionFuncMap[msgData.JobID]; !ok {
 			log.Println("No job found for this message, discarding the message")
 
 		} else {

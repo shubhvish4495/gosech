@@ -9,18 +9,19 @@ import (
 	"github.com/shubhvish4495/gosech"
 )
 
-const jobId = "asfsdgsdg"
-const otherJobId = "gfsdgds"
+const jobIdBaseName = "jobID"
 
 func main() {
-	serv, err := gosech.NewService("localhost:61613", nil, "rhsm.task.queue")
+	serv, err := gosech.NewService("localhost:61613", nil, "test.task.queue")
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
 	for i := 0; i < 10; i++ {
-		err := serv.SendMessage(jobId, []byte(fmt.Sprintf("%d", i)))
+		jobName := fmt.Sprintf("%s%d", jobIdBaseName, i)
+		log.Println("jobID ", jobName)
+		err := serv.SendMessage(jobName, []byte(fmt.Sprintf("%d", i)))
 		if err != nil {
 			log.Println(err)
 			return
@@ -29,11 +30,17 @@ func main() {
 
 	log.Println("message sent successfully, now moving forward to ingestion")
 
-	serv.RegisterFuncWithJobID(jobId, func(m []byte) error {
+	serv.RegisterFuncWithJobID("jobID1", func(m []byte) error {
 		fmt.Println(string(m))
 		if rand.Int()%2 == 0 {
 			return errors.New("new random error passed")
 		}
+		return nil
+	})
+
+	serv.RegisterFuncWithJobID("jobID2", func(m []byte) error {
+		fmt.Println("from jobID2")
+		fmt.Println(string(m))
 		return nil
 	})
 
