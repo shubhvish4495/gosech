@@ -7,6 +7,9 @@ In case the registered function returns an error in that scenario, Gosech would 
 ### Install
 ```go get github.com/shubhvish4495/gosech```
 
+### Design
+<img src="gosech-design.jpg"/>
+
 # Creating a new Gosceh service
 ```
 serv, err := gosech.NewService("localhost:61613", nil, "test.task.queue")
