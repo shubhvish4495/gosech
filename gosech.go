@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -115,17 +116,18 @@ func (s *Service) StartMultiFuncProcessing() error {
 				tx.Send(s.dataQueue, "", msg.Body)
 			}
 		}
-		// ack and commit. In case of error in any of the 2 cases we will panic
-		// as the message will not be reprocessed unless we have restarted the
-		// subscriber
+
+		// while acking or committing the message if we encounter error we would reconnect to the sub
+		// so that this message is released for anyother server to pick it up
 		if err := tx.Ack(msg); err != nil {
-			panic("could not ack message, panicking so that it can be retried")
+			s.reconnectSub()
+			continue
 		}
 
 		if err := tx.Commit(); err != nil {
-			panic("could not commit transaction, panicking so that it can be retried")
+			s.reconnectSub()
+			continue
 		}
-
 	}
 }
 
@@ -146,15 +148,36 @@ func (s *Service) StartProcessing() error {
 			tx.Send(s.dataQueue, "", msg.Body)
 		}
 
+		// while acking or committing the message if we encounter error we would reconnect to the sub
+		// so that this message is released for anyother server to pick it up
 		if err := tx.Ack(msg); err != nil {
-			panic("could not ack message, panicking so that it can be retried")
+			s.reconnectSub()
+			continue
 		}
 
 		if err := tx.Commit(); err != nil {
-			panic("could not commit transaction, panicking so that it can be retried")
+			s.reconnectSub()
+			continue
 		}
 
 	}
+}
+
+// reconnectSub drops the connection to the sub and then reconnects to it
+// this is to ensure that in case we are not getting any error while acking or
+// commiting the message, stomp doesnot resend data to anyother server involved
+// unless we remove the subscriber holding it. So to remove this we will reconnect
+// the server
+func (s *Service) reconnectSub() {
+	s.subscription.Unsubscribe()
+	sub, err := s.conn.Subscribe(s.dataQueue, stomp.AckClientIndividual)
+	// we panic here as we need to close the connection as we are not able to reconnect to the subscription
+	if err != nil {
+		panic(fmt.Sprintf("error while reconnecting to sub %s", err))
+	}
+
+	s.subscription = sub
+
 }
 
 func (s *Service) SendMessage(jobId string, data []byte) error {
