@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strconv"
 	"time"
 
 	"github.com/go-stomp/stomp/v3"
@@ -19,6 +20,7 @@ type Service struct {
 	subscription       *stomp.Subscription
 	jobIdActionFuncMap map[string]func([]byte) error
 	dataQueue          string
+	maxRetriesCount    int64
 }
 
 type multiFuncMsg struct {
@@ -29,7 +31,7 @@ type multiFuncMsg struct {
 // NewService returns a new service object for gosech. This method expects
 // the network address of the stomp server, the tlsConfguration if any and
 // the name of the queue from which we want the data to be processed
-func NewService(addr string, tlsCfg *tls.Config, dataQueue string) (*Service, error) {
+func NewService(addr string, tlsCfg *tls.Config, dataQueue string, retryCount int64) (*Service, error) {
 	var netConn io.ReadWriteCloser
 	// if tls config is passed we will create a tls connection
 	// else we create normal connection
@@ -59,11 +61,17 @@ func NewService(addr string, tlsCfg *tls.Config, dataQueue string) (*Service, er
 		return nil, err
 	}
 
+	//if retry count is not set or is 0 we set it to try as much as possible
+	if retryCount == 0 {
+		retryCount = 9223372036854775807 // max value for int64
+	}
+
 	return &Service{
 		conn:               stompConn,
 		subscription:       sub,
 		jobIdActionFuncMap: make(map[string]func([]byte) error),
 		dataQueue:          dataQueue,
+		maxRetriesCount:    retryCount,
 	}, nil
 }
 
@@ -101,31 +109,45 @@ func (s *Service) StartMultiFuncProcessing() error {
 			return err
 		}
 
-		var msgData multiFuncMsg
-
 		msg := <-s.subscription.C
+
+		// if retry count header is not present then we inititate it
+		if _, ok := msg.Header.Contains("retry-count"); !ok {
+			msg.Header.Add("retry-count", fmt.Sprintf("%d", 0))
+		}
+
+		var msgData multiFuncMsg
 		json.Unmarshal(msg.Body, &msgData)
 
-		if f, ok := s.jobIdActionFuncMap[msgData.JobID]; !ok {
-			log.Println("No job found for this message, discarding the message")
+		r := msg.Header.Get("retry-count")
+		count, _ := strconv.ParseInt(r, 10, 64)
 
-		} else {
-			err = f(msgData.Body)
-			if err != nil {
-				log.Println("error encountered while message processing. resending it to the back of the queue")
-				tx.Send(s.dataQueue, "", msg.Body)
+		// if max retries is exhausted we will simply drop the message
+		if count < s.maxRetriesCount {
+			if f, ok := s.jobIdActionFuncMap[msgData.JobID]; !ok {
+				log.Println("No job found for this message, discarding the message")
+			} else {
+				err = f(msgData.Body)
+				if err != nil {
+					log.Println("error encountered while message processing. resending it to the back of the queue")
+					tx.Send(s.dataQueue, "", msg.Body, stomp.SendOpt.Header("retry-count", fmt.Sprintf("%d", count+1)))
+				}
 			}
+		} else {
+			log.Println("Message has exhausted it retries, dropping it")
 		}
 
 		// while acking or committing the message if we encounter error we would reconnect to the sub
 		// so that this message is released for anyother server to pick it up
 		if err := tx.Ack(msg); err != nil {
 			s.reconnectSub()
+			tx.Abort()
 			continue
 		}
 
 		if err := tx.Commit(); err != nil {
 			s.reconnectSub()
+			tx.Abort()
 			continue
 		}
 	}

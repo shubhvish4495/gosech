@@ -12,7 +12,7 @@ import (
 const jobIdBaseName = "jobID"
 
 func main() {
-	serv, err := gosech.NewService("localhost:61613", nil, "test.task.queue")
+	serv, err := gosech.NewService("localhost:61613", nil, "test.task.queue", 3)
 	if err != nil {
 		log.Println(err)
 		return
