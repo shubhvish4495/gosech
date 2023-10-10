@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math/rand"
 
 	"github.com/shubhvish4495/gosech"
 )
@@ -12,7 +11,7 @@ import (
 const jobIdBaseName = "jobID"
 
 func main() {
-	serv, err := gosech.NewService("localhost:61613", nil, "test.task.queue", 3)
+	serv, err := gosech.NewService("localhost:61613", nil, "test.task.queue", 1)
 	if err != nil {
 		log.Println(err)
 		return
@@ -32,10 +31,9 @@ func main() {
 
 	serv.RegisterFuncWithJobID("jobID1", func(m []byte) error {
 		fmt.Println(string(m))
-		if rand.Int()%2 == 0 {
-			return errors.New("new random error passed")
-		}
-		return nil
+
+		return errors.New("new random error passed")
+
 	})
 
 	serv.RegisterFuncWithJobID("jobID2", func(m []byte) error {
