@@ -7,7 +7,7 @@ In case the registered function returns an error in that scenario, Gosech would 
 NOTE - We need to specify job ID in message headers, with the key `job-id`.
 
 ### Install
-```bash
+```cmd
 go get github.com/shubhvish4495/gosech
 ```
 
